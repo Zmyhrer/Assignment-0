@@ -115,38 +115,56 @@ def score_plaintext(plaintext, wordlist):
 
 # Optional: Quadgram scoring
 def load_quadgrams(url=None):
-    """Load quadgram frequencies; fallback to uniform if unavailable."""
+    """
+    Load quadgram frequencies and convert to log probabilities.
+    Falls back to uniform probabilities if download fails.
+    """
     quadgram_counts = {}
     if url is None:
-        url = "https://raw.githubusercontent.com/first20hours/google-10000-english/master/20k.txt"  # placeholder
+        # Use a more realistic source for quadgrams if possible
+        url = "https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt"  # placeholder
+    
     try:
         print("[Setup] Downloading quadgrams...")
         r = urllib.request.urlopen(url, timeout=20)
         text = r.read().decode("utf-8")
+        total_quads = 0
         for word in text.splitlines():
             word = word.strip().upper()
             for i in range(len(word)-3):
-                quadgram = word[i:i+4]
-                quadgram_counts[quadgram] = quadgram_counts.get(quadgram, 0) + 1
-        print(f"[Setup] Loaded {len(quadgram_counts)} quadgrams. Sample: {list(quadgram_counts.items())[:5]}")
+                q = word[i:i+4]
+                if all(c in ALPHA for c in q):
+                    quadgram_counts[q] = quadgram_counts.get(q, 0) + 1
+                    total_quads += 1
+        
+        # Convert counts to log probabilities
+        quadgram_logprobs = {}
+        for q, count in quadgram_counts.items():
+            prob = count / total_quads
+            quadgram_logprobs[q] = math.log(prob)
+        
+        print(f"[Setup] Loaded {len(quadgram_logprobs)} quadgrams. Sample: {list(quadgram_logprobs.items())[:5]}")
+        return quadgram_logprobs
     except Exception as e:
         print("[Warning] Quadgram download failed:", e)
-    return quadgram_counts
-
+        # Return uniform small log probability for unknown quads
+        uniform_prob = math.log(0.01)
+        return {q: uniform_prob for q in ALPHA}
 
 def quadgram_score(text, quadgrams=None):
-    """Compute approximate quadgram log probability."""
+    """
+    Compute quadgram log probability score.
+    Uses log probabilities to avoid extremely low values dominating the score.
+    """
     if not quadgrams:
         return 0
+    
     score = 0
-    debug_quads = []
-    for i in range(len(text)-3):
-        q = text[i:i+4]
-        if all(c in ALPHA for c in q):
-            val = quadgrams.get(q, 0.01)
-            score += math.log(val)
-            if len(debug_quads) < 5:  # only first 5 for readability
-                debug_quads.append((q, val, math.log(val)))
+    for i in range(len(text) - 3):
+        quad = text[i:i+4]
+        if all(c in ALPHA for c in quad):
+            # Use a small default log-probability for unseen quadgrams
+            score += quadgrams.get(quad, math.log(0.01))
     
     return score
 
